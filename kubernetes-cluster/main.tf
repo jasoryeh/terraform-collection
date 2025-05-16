@@ -243,6 +243,10 @@ resource "null_resource" "setup" {
       "sudo chmod 644 /etc/apt/sources.list.d/kubernetes.list",
       "apt update && apt -o DPkg::Lock::Timeout=-1 -y install kubelet kubectl kubeadm",
       "apt-mark hold kubelet kubeadm kubectl",
+      <<-EOT
+      echo "KUBELET_EXTRA_ARGS=--cloud-provider=external --node-ip=${local.all_instances[count.index].ipv4_address}" > /etc/default/kubelet
+      EOT
+      ,
       "systemctl enable --now kubelet",
       "systemctl daemon-reload",
       "mount -a",
@@ -332,10 +336,11 @@ resource "null_resource" "kubernetes_install_addons" {
       "curl https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/tigera-operator.yaml -O",
       "curl https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/custom-resources.yaml -O",
       # Create resources
-      "kubectl create --save-config -f operator-crds.yaml",
-      "kubectl create --save-config -f tigera-operator.yaml",
-      "kubectl create --save-config -f custom-resources.yaml",
+      "kubectl create -f operator-crds.yaml",
+      "kubectl create -f tigera-operator.yaml",
+      "kubectl create -f custom-resources.yaml",
       #"kubectl apply -f /tigera-reach-first.yml",
+      #"kubectl set env daemonset/calico-node -n kube-system IP_AUTODETECTION_METHOD=canReach=1.1.1.1",
       # More tools related to calico network add-on
       "curl -L https://github.com/projectcalico/calico/releases/download/v3.30.0/calicoctl-linux-amd64 -o /usr/local/bin/calicoctl",
       "chmod +x /usr/local/bin/calicoctl",
