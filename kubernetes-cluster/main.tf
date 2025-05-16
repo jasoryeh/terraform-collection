@@ -298,10 +298,27 @@ resource "null_resource" "kubernetes_init_controlplane" {
   }
 }
 
+#resource "null_resource" "copy_calico_custom" {
+#  count = length(local.controlplanes)
+#
+#  depends_on = [resource.null_resource.kubernetes_init_controlplane]
+#  provisioner "file" {
+#    connection {
+#      host = local.controlplanes[count.index].ipv4_address
+#      user = "root"
+#      private_key = resource.tls_private_key.ssh_key.private_key_openssh
+#    }
+#    
+#    source = "tigera-reach-first.yml"
+#    destination = "/tigera-reach-first.yml"
+#  }
+#}
 resource "null_resource" "kubernetes_install_addons" {
   count = length(local.controlplanes)
-
+  
+  #depends_on = [resource.null_resource.copy_calico_custom]
   depends_on = [resource.null_resource.kubernetes_init_controlplane]
+
   provisioner "remote-exec" {
     connection {
       host = local.controlplanes[count.index].ipv4_address
@@ -311,15 +328,18 @@ resource "null_resource" "kubernetes_install_addons" {
 
     inline = [
       # Kubernetes network add-on
-      "curl https://raw.githubusercontent.com/projectcalico/calico/v3.29.3/manifests/tigera-operator.yaml -O",
-      #"kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.3/manifests/tigera-operator.yaml --validate=false",
-      "curl https://raw.githubusercontent.com/projectcalico/calico/v3.29.3/manifests/custom-resources.yaml -O",
-      "kubectl create -f tigera-operator.yaml --validate=false",
-      "kubectl create -f custom-resources.yaml --validate=false",
+      "curl https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/operator-crds.yaml -O",
+      "curl https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/tigera-operator.yaml -O",
+      "curl https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/custom-resources.yaml -O",
+      # Create resources
+      "kubectl create --save-config -f operator-crds.yaml",
+      "kubectl create --save-config -f tigera-operator.yaml",
+      "kubectl create --save-config -f custom-resources.yaml",
+      #"kubectl apply -f /tigera-reach-first.yml",
       # More tools related to calico network add-on
-      "curl -L https://github.com/projectcalico/calico/releases/download/v3.29.3/calicoctl-linux-amd64 -o /usr/local/bin/calicoctl",
+      "curl -L https://github.com/projectcalico/calico/releases/download/v3.30.0/calicoctl-linux-amd64 -o /usr/local/bin/calicoctl",
       "chmod +x /usr/local/bin/calicoctl",
-
+      # Info
       "kubectl cluster-info",
     ]
   }
