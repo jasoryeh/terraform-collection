@@ -43,11 +43,11 @@ function yes_or_no {
 }
 
 function up() {
-    yes_or_no "Continue with 'terraform apply on $1?" && terraform apply
+    yes_or_no "Continue with 'terraform apply on $1?" && terraform apply -auto-approve
 }
 
 function down() {
-    yes_or_no "Destroy the 'terraform apply'd project just applied on $1?" && terraform destroy
+    yes_or_no "Destroy the 'terraform apply'd project just applied on $1?" && terraform destroy -auto-approve
 }
 
 if [ -z "${*:2}" ]; then
