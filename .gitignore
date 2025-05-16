@@ -8,3 +8,5 @@ terraform.tfstate.backup
 */connect_master.sh
 */kube-join.sh
 */connect_worker_*.sh
+
+.idea
