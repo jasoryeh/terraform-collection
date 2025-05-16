@@ -42,6 +42,18 @@ function yes_or_no {
     done
 }
 
-yes_or_no "Continue with 'terraform apply on $1?" && terraform apply
+function up() {
+    yes_or_no "Continue with 'terraform apply on $1?" && terraform apply
+}
 
-yes_or_no "Destroy the 'terraform apply' project just applied on $1?" && terraform destroy
+function down() {
+    yes_or_no "Destroy the 'terraform apply'd project just applied on $1?" && terraform destroy
+}
+
+if [ -z "${*:2}" ]; then
+    up
+    down
+else
+    yes_or_no "Run 'terraform ${*:2}' on project $1?" && eval "terraform ${*:2}"
+fi
+
