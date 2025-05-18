@@ -5,4 +5,4 @@ metadata:
 spec:
   calicoNetwork:
     nodeAddressAutodetectionV4:
-      canReach: 8.8.8.8
+      canReach: 1.1.1.1
