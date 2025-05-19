@@ -69,7 +69,7 @@ provider "digitalocean" {
 
 resource "digitalocean_ssh_key" "ssh_key" {
   depends_on = [ resource.null_resource.write_key ]
-  name = "Terraform Import SSH"
+  name = "Terraform Imported SSH Key"
   public_key = resource.tls_private_key.ssh_key.public_key_openssh
 }
 
@@ -302,26 +302,37 @@ resource "null_resource" "kubernetes_init_controlplane" {
   }
 }
 
-#resource "null_resource" "copy_calico_custom" {
-#  count = length(local.controlplanes)
-#
-#  depends_on = [resource.null_resource.kubernetes_init_controlplane]
-#  provisioner "file" {
-#    connection {
-#      host = local.controlplanes[count.index].ipv4_address
-#      user = "root"
-#      private_key = resource.tls_private_key.ssh_key.private_key_openssh
-#    }
-#    
-#    source = "tigera-reach-first.yml"
-#    destination = "/tigera-reach-first.yml"
-#  }
-#}
+resource "null_resource" "get_kubeadm_command" {
+  count = length(local.controlplanes)
+
+  depends_on = [resource.null_resource.kubernetes_init_controlplane]
+  provisioner "local-exec" {
+    command = <<-EOT
+    ssh root@${local.controlplanes[count.index].ipv4_address} -o StrictHostKeyChecking=no -i ${var.private_key} "kubeadm token create --print-join-command" > kube-join.sh
+    EOT
+  }
+}
+
+resource "null_resource" "copy_calico_custom" {
+  count = length(local.all_instances)
+
+  depends_on = [resource.null_resource.get_kubeadm_command]
+  provisioner "file" {
+    connection {
+      host = local.all_instances[count.index].ipv4_address
+      user = "root"
+      private_key = resource.tls_private_key.ssh_key.private_key_openssh
+    }
+    
+    source = "calico-custom-resources.yaml"
+    destination = "/calico-custom-resources.yaml"
+  }
+}
+
 resource "null_resource" "kubernetes_install_addons" {
   count = length(local.controlplanes)
   
-  #depends_on = [resource.null_resource.copy_calico_custom]
-  depends_on = [resource.null_resource.kubernetes_init_controlplane]
+  depends_on = [resource.null_resource.copy_calico_custom]
 
   provisioner "remote-exec" {
     connection {
@@ -339,32 +350,22 @@ resource "null_resource" "kubernetes_install_addons" {
       "kubectl create -f operator-crds.yaml",
       "kubectl create -f tigera-operator.yaml",
       "kubectl create -f custom-resources.yaml",
-      #"kubectl apply -f /tigera-reach-first.yml",
-      #"kubectl set env daemonset/calico-node -n kube-system IP_AUTODETECTION_METHOD=canReach=1.1.1.1",
+      # Tolerate taint because we're rolling our own Kubernetes deployment
+      "kubectl taint nodes --all node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule-",
       # More tools related to calico network add-on
-      "curl -L https://github.com/projectcalico/calico/releases/download/v3.30.0/calicoctl-linux-amd64 -o /usr/local/bin/calicoctl",
-      "chmod +x /usr/local/bin/calicoctl",
+      "curl -L https://github.com/projectcalico/calico/releases/download/v3.30.0/calicoctl-linux-amd64 -o /usr/local/bin/kubectl-calico",
+      "chmod +x /usr/local/bin/kubectl-calico",
       # Info
       "kubectl cluster-info",
+      "kubectl get tigerastatus",
     ]
-  }
-}
-
-resource "null_resource" "get_kubeadm_command" {
-  count = length(local.controlplanes)
-
-  depends_on = [resource.null_resource.kubernetes_install_addons]
-  provisioner "local-exec" {
-    command = <<-EOT
-    ssh root@${local.controlplanes[count.index].ipv4_address} -o StrictHostKeyChecking=no -i ${var.private_key} "kubeadm token create --print-join-command" > kube-join.sh
-    EOT
   }
 }
 
 resource "null_resource" "join_cluster" {
   count = length(local.workers)
 
-  depends_on = [resource.null_resource.get_kubeadm_command]
+  depends_on = [resource.null_resource.kubernetes_install_addons]
   provisioner "remote-exec" {
     connection {
       host = local.workers[count.index].ipv4_address
@@ -374,6 +375,38 @@ resource "null_resource" "join_cluster" {
 
     scripts = [
       "kube-join.sh"
+    ]
+  }
+}
+
+
+
+resource "null_resource" "wait_for_nodes_ready" {
+  count = length(local.controlplanes)
+
+  depends_on = [resource.null_resource.join_cluster] 
+  
+  provisioner "remote-exec" {
+    connection {
+      host = local.controlplanes[count.index].ipv4_address
+      user = "root"
+      private_key = resource.tls_private_key.ssh_key.private_key_openssh
+    }
+
+    inline = [
+      <<-EOT
+      #!/bin/bash
+      kubectl cluster-info
+      while true; do
+        if [[ "$(kubectl get nodes)" == *"NotReady"* ]]; then
+          echo "Waiting for nodes to become ready"
+        else
+          echo "All Nodes are Ready"
+          kubectl get nodes
+          break
+        fi
+      done
+      EOT
     ]
   }
 }
